@@ -1,0 +1,14 @@
+[package]
+name = "buttplug-osc"
+version = "0.1.0"
+authors = ["AlexanderPavlenko <AlexanderPavlenko@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-std = { version = "1.9", features = ["attributes"] }
+buttplug = "2.1"
+anyhow = "1.0"
+nannou_osc = "0.15"
+structopt = "0.3"
