@@ -386,6 +386,7 @@ dependencies = [
  "evmap-derive",
  "nannou_osc",
  "structopt",
+ "tracing-subscriber",
  "url",
 ]
 

@@ -15,3 +15,4 @@ structopt = "0.3"
 url = "2.2"
 evmap = "10.0"
 evmap-derive = "0.2"
+tracing-subscriber = { version = "0.2", default-features = false, features = ["env-filter", "fmt"] }

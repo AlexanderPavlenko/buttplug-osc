@@ -12,7 +12,7 @@ Thanks to [buttplug.io](https://buttplug.io/), this program would allow to contr
 * ✅ Reconnect if device temporarily disconnect
 * Reconnect if server temporarily disconnect
 * ✅ OSC receiver
-* Build for Windows 10
+* ✅ Build for Windows 10
 * Demo patches for:
     * VCV Rack
     * TC-Data
