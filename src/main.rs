@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use structopt::StructOpt;
@@ -6,11 +6,13 @@ use url::Url;
 use nannou_osc as osc;
 use nannou_osc::rosc::OscType;
 use buttplug::{
-    client::{ButtplugClient, ButtplugClientDevice, ButtplugClientEvent, ButtplugClientError,
+    client::{ButtplugClient, ButtplugClientDevice, ButtplugClientEvent,
              device::VibrateCommand},
     connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
     core::messages::serializer::ButtplugClientJSONSerializer,
 };
+use anyhow::{bail, Result, Error};
+use tracing::{debug, info, warn};
 
 #[derive(StructOpt)]
 struct CliArgs {
@@ -22,19 +24,33 @@ struct CliArgs {
 }
 
 #[async_std::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_ansi(false).init();
-
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let args = CliArgs::from_args();
-    // println!("--intiface-connect {:#?}", args.intiface_connect.as_str());
-    // println!("--osc-listen {:#?}", args.osc_listen.as_str());
 
     let osc_listen_host_port = validate_osc_listen_url(&args.osc_listen);
-    let (devices_r, mut devices_w) = evmap::new();
+    let (devices_r, devices_w) = evmap::new();
     std::thread::spawn(move || {
+        info!("Starting OSC Server ({})", osc_listen_host_port);
         osc_listen(&osc_listen_host_port, devices_r);
     });
 
+    let devices_m = Arc::new(Mutex::new(devices_w));
+    loop {
+        let address = String::from(args.intiface_connect.as_str());
+        let devices = devices_m.clone();
+        let client_thread = std::thread::spawn(move || {
+            info!("Starting Intiface Client ({})", address);
+            block_on(intiface_connect(&address, &mut *devices.lock().unwrap()))
+        });
+        let _ = client_thread.join();
+    }
+}
+
+async fn intiface_connect(address: &str, devices: &mut evmap::WriteHandle<&str, Device>) -> Result<()> {
     // https://buttplug-developer-guide.docs.buttplug.io/writing-buttplug-applications/device-enum.html#device-connection-events-and-storage
     // > The server could already be running and have devices connected to it. In this case, the Client will emit DeviceAdded events on successful connection.
     // > This means you will want to have your event handlers set up BEFORE connecting, in order to catch these messages.
@@ -49,56 +65,36 @@ async fn main() -> anyhow::Result<()> {
                     // let name = Box::leak(device.name.clone().into_boxed_str());
                     // devices_w.update(name, Device { device: device.clone() });
 
-                    devices_w.update("last", Device { device: device.clone() });
-                    devices_w.refresh();
-                    println!("[{}] added", device.name);
+                    devices.update("last", Device { device: device.clone() });
+                    devices.refresh();
+                    info!("[{}] added", device.name);
                 }
                 ButtplugClientEvent::DeviceRemoved(device) => {
-                    println!("[{}] removed", device.name);
+                    info!("[{}] removed", device.name);
                     // rescanning, maybe a temporary disconnect
                     let _ = client.stop_scanning().await;
                     let _ = client.start_scanning().await;
                 }
                 ButtplugClientEvent::ServerDisconnect => {
-                    // TODO: didn't work, need a new instance of client
-                    // loop {
-                    //     let e = client.disconnect().await;
-                    //     println!("{:#?}", e);
-                    //     let result =
-                    //         intiface_connect(&client, args.intiface_connect.as_str()).await;
-                    //     if result.is_ok() {
-                    //         break;
-                    //     } else {
-                    //         println!("{:#?}", result)
-                    //     }
-                    //     println!("Reconnecting to server...");
-                    // }
-                    panic!();
+                    bail!("ServerDisconnect");
                 }
                 _ => {}
             }
         };
-        Ok::<(), anyhow::Error>(())
+        Ok::<(), Error>(())
     };
 
-    intiface_connect(&client, args.intiface_connect.as_str()).await?;
-    client.start_scanning().await?;
-    event_loop.await?;
-
-    Ok(())
-}
-
-async fn intiface_connect(client: &ButtplugClient, address: &str) -> anyhow::Result<(), ButtplugClientError> {
     let connector = ButtplugRemoteClientConnector::<
         ButtplugWebsocketClientTransport,
         ButtplugClientJSONSerializer,
     >::new(ButtplugWebsocketClientTransport::new_insecure_connector(address));
-    client.connect(connector).await
+    client.connect(connector).await?;
+    client.start_scanning().await?;
+    event_loop.await
 }
 
 fn osc_listen(host_port: &str, devices: evmap::ReadHandle<&str, Device>) {
     let rx = osc::Receiver::bind_to(host_port).expect("Invalid --osc-listen: couldn't bind socket");
-    // let iter = rx.iter();
     for packet in rx.iter() {
         let messages = packet.0.into_msgs();
         for message in messages {
@@ -107,7 +103,7 @@ fn osc_listen(host_port: &str, devices: evmap::ReadHandle<&str, Device>) {
                 match command {
                     Command::Vibrate(device_name, params) => {
                         devices.get_one(&device_name[..]).map(|device| {
-                            println!("[{}] adjusting vibration", device.name);
+                            debug!("[{}] adjusting vibration", device.name);
                             block_on(device.vibrate(params))
                         });
                     }
@@ -132,21 +128,21 @@ fn validate_osc_message(message: osc::Message) -> Option<Command> {
                             x.into()
                         }
                         _ => {
-                            println!("[{}] invalid argument: {:?}", message.addr, args[0]);
+                            warn!("[{}] invalid argument: {:?}", message.addr, args[0]);
                             return None;
                         }
                     };
-                    println!("[{}] {}", message.addr, speed);
+                    debug!("[{}] {}", message.addr, speed);
                     Some(Command::Vibrate(DeviceName::from("last"), VibrateCommand::Speed(speed)))
                 }
                 None => {
-                    println!("[{}] absent argument", message.addr);
+                    warn!("[{}] absent argument", message.addr);
                     None
                 }
             }
         }
         _ => {
-            println!("[{}] invalid command", message.addr);
+            warn!("[{}] invalid command", message.addr);
             None
         }
     }

@@ -10,7 +10,7 @@ Thanks to [buttplug.io](https://buttplug.io/), this program would allow to contr
     * ✅ Intiface websocket URL
     * ✅ OSC receiver binding IP:port
 * ✅ Reconnect if device temporarily disconnect
-* Reconnect if server temporarily disconnect
+* ✅ Reconnect if server temporarily disconnect
 * ✅ OSC receiver
 * ✅ Build for Windows 10
 * Demo patches for:
