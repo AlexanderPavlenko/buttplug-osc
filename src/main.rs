@@ -1,6 +1,6 @@
-use std::{thread, sync::{Arc, Mutex}};
-use async_std::stream::StreamExt;
-use async_std::task::block_on;
+use tokio::task;
+use std::sync::{Arc, Mutex};
+use futures_util::stream::StreamExt;
 use structopt::StructOpt;
 use url::Url;
 use nannou_osc as osc;
@@ -12,7 +12,7 @@ use buttplug::{
     core::messages::serializer::ButtplugClientJSONSerializer,
 };
 use anyhow::{bail, Result, Error};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, error};
 
 const DEVICES_ALL: &str = "all";
 const DEVICES_LAST: &str = "last";
@@ -30,7 +30,7 @@ struct CliArgs {
     rust_log: String,
 }
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<()> {
     let args = CliArgs::from_args();
     tracing_subscriber::fmt()
@@ -41,25 +41,21 @@ async fn main() -> Result<()> {
 
     let osc_listen_host_port = validate_osc_listen_url(&args.osc_listen);
     let (devices_r, devices_w) = evmap::new();
-    thread::Builder::new().name(String::from("OSC Server")).spawn(move || {
+    task::spawn_blocking(move || {
         info!("Starting OSC Server ({})", osc_listen_host_port);
-        let _ = block_on(osc_listen(&osc_listen_host_port, devices_r));
-    })?;
+        osc_listen(&osc_listen_host_port, devices_r);
+    });
 
     let devices_m = Arc::new(Mutex::new(devices_w));
     loop {
         let address = String::from(args.intiface_connect.as_str());
         let devices = devices_m.clone();
-        let client_thread =
-            thread::Builder::new().name(String::from("Intiface Client")).spawn(move || {
-                info!("Starting Intiface Client ({})", address);
-                let _ = block_on(intiface_connect(&address, &mut *devices.lock().unwrap()));
-            })?;
-        client_thread.join().expect("unexpected");
+        let _ = task::spawn(intiface_connect(address, devices)).await;
     }
 }
 
-async fn intiface_connect(address: &str, devices: &mut evmap::WriteHandle<&str, Device>) -> Result<()> {
+async fn intiface_connect(address: String, devices: Arc<Mutex<evmap::WriteHandle<&str, Device>>>) -> Result<()> {
+    info!("Starting Intiface Client ({})", address);
     // https://buttplug-developer-guide.docs.buttplug.io/writing-buttplug-applications/device-enum.html#device-connection-events-and-storage
     // > The server could already be running and have devices connected to it. In this case, the Client will emit DeviceAdded events on successful connection.
     // > This means you will want to have your event handlers set up BEFORE connecting, in order to catch these messages.
@@ -70,6 +66,7 @@ async fn intiface_connect(address: &str, devices: &mut evmap::WriteHandle<&str, 
         while let Some(event) = event_stream.next().await {
             match event {
                 ButtplugClientEvent::DeviceAdded(device) => {
+                    let mut devices = devices.lock().expect("unexpected");
                     let name = Box::leak(
                         normalize_device_name(&device.name).into_boxed_str());
                     devices.update(name, Device { device: device.clone() });
@@ -78,7 +75,7 @@ async fn intiface_connect(address: &str, devices: &mut evmap::WriteHandle<&str, 
                     info!("[{}] added", name);
                 }
                 ButtplugClientEvent::DeviceRemoved(device) => {
-                    info!("[{}] removed", normalize_device_name(&device.name));
+                    warn!("[{}] removed", normalize_device_name(&device.name));
                     // rescanning, maybe a temporary disconnect
                     let _ = client.stop_scanning().await;
                     let _ = client.start_scanning().await;
@@ -95,7 +92,8 @@ async fn intiface_connect(address: &str, devices: &mut evmap::WriteHandle<&str, 
     let connector = ButtplugRemoteClientConnector::<
         ButtplugWebsocketClientTransport,
         ButtplugClientJSONSerializer,
-    >::new(ButtplugWebsocketClientTransport::new_insecure_connector(address));
+    >::new(ButtplugWebsocketClientTransport::new_insecure_connector(&address));
+
     client.connect(connector).await?;
     client.start_scanning().await?;
     event_loop.await
@@ -105,7 +103,7 @@ fn normalize_device_name(name: &str) -> String {
     name.split(|c: char| !c.is_alphanumeric()).collect::<String>()
 }
 
-async fn osc_listen(host_port: &str, devices: evmap::ReadHandle<&'static str, Device>) {
+fn osc_listen(host_port: &str, devices: evmap::ReadHandle<&'static str, Device>) {
     let rx = osc::Receiver::bind_to(host_port).expect("Invalid --osc-listen: couldn't bind socket");
     for packet in rx.iter() {
         let messages = packet.0.into_msgs();
@@ -114,16 +112,25 @@ async fn osc_listen(host_port: &str, devices: evmap::ReadHandle<&'static str, De
                 if let Some(iter) = filter_devices(&broadcast.devices_set[..], &devices) {
                     for device in iter {
                         let device_name = normalize_device_name(&device.name);
-                        let _ = match broadcast.command {
+                        let device = device.clone();
+                        match broadcast.command {
                             Command::Vibrate(speed) => {
-                                debug!("[{}] adjusting vibration", device_name);
-                                device.vibrate(VibrateCommand::Speed(speed))
+                                task::spawn(async move {
+                                    debug!("[{}] adjusting vibration", device_name);
+                                    device.vibrate(VibrateCommand::Speed(speed)).await.map_err(|e|
+                                        error!("{:?}", e)
+                                    )
+                                })
                             }
                             Command::Stop => {
-                                debug!("[{}] stopping", device_name);
-                                device.stop()
+                                task::spawn(async move {
+                                    debug!("[{}] stopping", device_name);
+                                    device.stop().await.map_err(|e|
+                                        error!("{:?}", e)
+                                    )
+                                })
                             }
-                        }.await;
+                        };
                     }
                 }
             }

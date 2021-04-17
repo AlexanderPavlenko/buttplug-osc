@@ -33,17 +33,17 @@ OPTIONS:
     * `all` is an alias for all connected devices
   * Command `vibrate`
     * Argument `speed`: from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.Speed))
+  * Command `stop`
+
+## Features
+
+* Reconnects if device or server temporarily disconnected
+* OSC receiver
+* Control multiple devices
+* [Build for Windows 10](https://github.com/AlexanderPavlenko/buttplug-osc/releases/latest/download/buttplug-osc.exe)
 
 ## TODO
 
-* CLI argument for:
-    * ✅ Intiface websocket URL
-    * ✅ OSC receiver binding IP:port
-* ✅ Reconnect if device temporarily disconnect
-* ✅ Reconnect if server temporarily disconnect
-* ✅ OSC receiver
-* ✅ Build for Windows 10
-* ✅ Control multiple devices
 * Demo patches for:
     * VCV Rack
     * TC-Data
