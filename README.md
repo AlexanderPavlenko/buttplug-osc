@@ -41,10 +41,3 @@ OPTIONS:
 * OSC receiver
 * Control multiple devices
 * [Build for Windows 10](https://github.com/AlexanderPavlenko/buttplug-osc/releases/latest/download/buttplug-osc.exe)
-
-## TODO
-
-* Demo patches for:
-    * VCV Rack
-    * TC-Data
-    * Ableton Live 11
