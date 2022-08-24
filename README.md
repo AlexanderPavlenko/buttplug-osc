@@ -35,7 +35,7 @@ OPTIONS:
   * Command `vibrate`
     * Argument `speed`: from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.Speed))
   * Command `vibrateMap` 
-    *Argument `motor`(u32) , `speed` : from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.SpeedMap))
+    * Argument `motor`(u32) , `speed` : from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.SpeedMap))
   * Command `stop`
 
 ## Features
