@@ -2,6 +2,7 @@
 
 Thanks to [buttplug.io](https://buttplug.io/), this program allows to control
 ~~numerous supported devices~~ at least ones which I have via [OSC](https://en.wikipedia.org/wiki/Open_Sound_Control).
+Note from Lola vibrateMap does not have complete error checking use with caution.
 
 ## Usage
 
@@ -33,6 +34,8 @@ OPTIONS:
     * `all` is an alias for all connected devices
   * Command `vibrate`
     * Argument `speed`: from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.Speed))
+  * Command `vibrateMap` 
+    *Argument `motor`(u32) , `speed` : from 0.0 to 1.0 ([details](https://docs.rs/buttplug/3.0.0/buttplug/client/device/enum.VibrateCommand.html#variant.SpeedMap))
   * Command `stop`
 
 ## Features
@@ -40,4 +43,5 @@ OPTIONS:
 * Reconnects if device or server temporarily disconnected
 * OSC receiver
 * Control multiple devices
+* Control a single devices' multiple motors
 * [Build for Windows 10](https://github.com/AlexanderPavlenko/buttplug-osc/releases/latest/download/buttplug-osc.exe)
